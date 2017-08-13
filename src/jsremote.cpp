@@ -3,10 +3,12 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#include <map>
 #include <string>
 #include <csignal>
 #include <cstdlib>
 #include <cstdio>
+#include <utility>
 #include <iostream>
 
 #include <epoller/epoller.h>
@@ -40,6 +42,8 @@ static std::string  jsdev;
 static uint32_t    *sockevents;
 static bool         sockconnected;
 
+static std::map<std::pair<uint8_t, uint8_t>, js_event> initev;
+
 ////////////////////////////////////////////////////////////////////////////////
 // prototypes
 ////////////////////////////////////////////////////////////////////////////////
@@ -57,6 +61,7 @@ static void joystick_print_info();
 static bool socket_connect();
 static void socket_close();
 static void socket_write_dgram(const void *buff, size_t len);
+static void socket_write_event(const struct js_event *event);
 
 static int sighandler(struct sigepoller *sc, struct signalfd_siginfo *siginfo);
 static int monhandler_joystick(struct timepoller *timepoller, uint64_t exp);
@@ -122,6 +127,8 @@ static bool joystick_open()
 	js._err       = &jserr;
 	js._hup       = &jserr;
 	js._jshandler = &jshandler;
+
+	initev.clear();
 
 	std::cout << "joystick open" << std::endl;
 
@@ -217,7 +224,7 @@ static void socket_close()
 	std::cout << "socket closed" << std::endl;
 }
 
-void socket_write_dgram(const void *buff, size_t len)
+static void socket_write_dgram(const void *buff, size_t len)
 {
 	ssize_t ret = sock.write_dgram(buff, len);
 	if (ret < 0)
@@ -226,6 +233,22 @@ void socket_write_dgram(const void *buff, size_t len)
 		std::cerr << "writing datagram to socket failed, not enough space" << std::endl;
 	else if ((size_t)ret != len)
 		std::cerr << "writing datagram to socket failed, unexpected error" << std::endl;
+}
+
+static void socket_write_event(const struct js_event *event)
+{
+	uint8_t buff[offsetof(jsmessage, data) + sizeof(jsevent)];
+	jsmessage *msg = (jsmessage *) buff;
+	jsevent   *evt = (jsevent   *) msg->data;
+
+	msg->length = sizeof buff;
+	msg->command = JS_COMMAND_EVENT;
+	evt->time    = event->time;
+	evt->value   = event->value;
+	evt->type    = event->type;
+	evt->number  = event->number;
+
+	socket_write_dgram(buff, sizeof buff);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -288,21 +311,11 @@ static int jshandler(struct jsepoller *js, struct js_event *event)
 {
 	printf("js: %10u, %6d, %02X, %02d\n", event->time, event->value, event->type, event->number);
 
-	if (!sockconnected)
-		return 0;
+	if (sockconnected)
+		socket_write_event(event);
 
-	uint8_t buff[offsetof(jsmessage, data) + sizeof(jsevent)];
-	jsmessage *msg = (jsmessage *) buff;
-	jsevent   *evt = (jsevent   *) msg->data;
-
-	msg->length = sizeof buff;
-	msg->command = JS_COMMAND_EVENT;
-	evt->time    = event->time;
-	evt->value   = event->value;
-	evt->type    = event->type;
-	evt->number  = event->number;
-
-	socket_write_dgram(buff, sizeof buff);
+	event->type |= JS_EVENT_INIT;
+	initev[std::make_pair(event->type, event->number)] = *event;
 
 	return 0;
 }
@@ -370,6 +383,9 @@ static int socktx(struct fdepoller *fdepoller, int len)
 				std::cerr << "enabling reception on socket failed" << std::endl;
 				err = true;
 			}
+
+			for (const auto &item : initev)
+				socket_write_event(&item.second);
 
 		} else if (len < 0) {
 			std::cerr << "socket connecting failed" << std::endl;
