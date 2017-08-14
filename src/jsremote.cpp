@@ -6,6 +6,7 @@
 #include <map>
 #include <string>
 #include <csignal>
+#include <cstring>
 #include <cstdlib>
 #include <cstdio>
 #include <utility>
@@ -237,16 +238,16 @@ static void socket_write_dgram(const void *buff, size_t len)
 
 static void socket_write_event(const struct js_event *event)
 {
-	uint8_t buff[offsetof(jsmessage, data) + sizeof(jsevent)];
-	jsmessage *msg = (jsmessage *) buff;
-	jsevent   *evt = (jsevent   *) msg->data;
+	uint8_t buff[sizeof(jsmessage) + sizeof(jsc_event)];
+	jsmessage *msg  = (jsmessage *) buff;
+	jsc_event *data = (jsc_event *) msg->data;
 
-	msg->length = sizeof buff;
+	msg->length  = sizeof buff;
 	msg->command = JS_COMMAND_EVENT;
-	evt->time    = event->time;
-	evt->value   = event->value;
-	evt->type    = event->type;
-	evt->number  = event->number;
+	data->time   = event->time;
+	data->value  = event->value;
+	data->type   = event->type;
+	data->number = event->number;
 
 	socket_write_dgram(buff, sizeof buff);
 }
@@ -358,7 +359,64 @@ static int sockrx(struct fdepoller *fdepoller, int len)
 
 	} else {
 		std::cout << "sockrx, len = " << len << std::endl;
+
+		if (linbuff_tord(&sock.rxbuff) < sizeof(jsmessage))
+			goto finish;
+
+		jsmessage *msg = (jsmessage *)LINBUFF_RD_PTR(&sock.rxbuff);
+
+		if (msg->command == JS_COMMAND_GETAXES) {
+
+			linbuff_skip(&sock.rxbuff, sizeof(jsmessage));
+
+			uint8_t buff[sizeof(jsmessage) + sizeof(jsr_getaxes)];
+			jsmessage   *msg  = (jsmessage *) buff;
+			jsr_getaxes *data = (jsr_getaxes *) msg->data;
+
+			msg->length  = sizeof buff;
+			msg->command = JS_COMMAND_GETAXES | JS_RESPONSE;
+			data->number = js.get_axes();
+
+			socket_write_dgram(buff, sizeof buff);
+
+		} else if (msg->command == JS_COMMAND_GETBUTTONS) {
+
+			linbuff_skip(&sock.rxbuff, sizeof(jsmessage));
+
+			uint8_t buff[sizeof(jsmessage) + sizeof(jsr_getbuttons)];
+			jsmessage      *msg  = (jsmessage *) buff;
+			jsr_getbuttons *data = (jsr_getbuttons *) msg->data;
+
+			msg->length  = sizeof buff;
+			msg->command = JS_COMMAND_GETBUTTONS | JS_RESPONSE;
+			data->number = js.get_buttons();
+
+			socket_write_dgram(buff, sizeof buff);
+
+		} else if (msg->command == JS_COMMAND_GETNAME) {
+
+			linbuff_skip(&sock.rxbuff, sizeof(jsmessage));
+
+			std::string name = js.get_name();
+
+			uint8_t buff[sizeof(jsmessage) + sizeof(jsr_getname) + name.length()];
+			jsmessage   *msg  = (jsmessage *) buff;
+			jsr_getname *data = (jsr_getname *) msg->data;
+
+			msg->length  = sizeof buff;
+			msg->command = JS_COMMAND_GETNAME | JS_RESPONSE;
+			data->length = name.length();
+			memcpy(data->name, name.c_str(), name.length());
+
+			socket_write_dgram(buff, sizeof buff);
+
+		} else {
+			std::cerr << "unkown command" << std::endl;
+			err= true;
+		}
 	}
+
+finish:
 
 	if (err) {
 		socket_close();
