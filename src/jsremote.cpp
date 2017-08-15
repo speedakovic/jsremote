@@ -2,6 +2,7 @@
 
 #include <fcntl.h>
 #include <unistd.h>
+#include <getopt.h>
 
 #include <map>
 #include <string>
@@ -22,11 +23,9 @@
 // macros
 ////////////////////////////////////////////////////////////////////////////////
 
-#define JSDEV_DEFAULT          "/dev/input/js0"
+#define JSDEV                  "/dev/input/js0"
 #define MON_JOYSTICK_PERIOD_MS 1000u
 #define MON_SERVER_PERIOD_MS   1000u
-#define SERVER_IP              "127.0.0.1"
-#define SERVER_PORT            55555
 #define SOCKET_RX_BUFF_LEN     JS_MESSAGE_LENGTH_MAX
 #define SOCKET_TX_BUFF_LEN     JS_MESSAGE_LENGTH_MAX
 
@@ -39,11 +38,28 @@ static sigepoller   sc(&epoller);
 static jsepoller    js(&epoller);
 static timepoller   mon(&epoller);
 static sockepoller  sock(&epoller);
-static std::string  jsdev;
 static uint32_t    *sockevents;
 static bool         sockconnected;
 
+static std::string  jsdev = JSDEV;
+static std::string  server_addr;
+static uint16_t     server_port;
+static size_t       mon_joystick_period_ms = MON_JOYSTICK_PERIOD_MS;
+static size_t       mon_server_period_ms = MON_SERVER_PERIOD_MS;
+
 static std::map<std::pair<uint8_t, uint8_t>, js_event> initev;
+
+static const char* const short_opts = "ha:p:j:x:y:";
+
+static const struct option long_opts[] = {
+	{"help",      0, NULL, 'h'},
+	{"addr",      1, NULL, 'a'},
+	{"port",      1, NULL, 'p'},
+	{"jsdev",     1, NULL, 'j'},
+	{"jsmon",     1, NULL, 'x'},
+	{"servermon", 1, NULL, 'y'},
+	{ NULL,       0, NULL,  0 }
+};
 
 ////////////////////////////////////////////////////////////////////////////////
 // prototypes
@@ -90,7 +106,7 @@ static bool monitor_joystick()
 {
 	struct timespec ts;
 
-	if (!mon.arm_periodic(ms2timespec(&ts, MON_JOYSTICK_PERIOD_MS)))
+	if (!mon.arm_periodic(ms2timespec(&ts, mon_joystick_period_ms)))
 		return false;
 
 	mon._timerhandler = &monhandler_joystick;
@@ -104,7 +120,7 @@ static bool monitor_server()
 {
 	struct timespec ts;
 
-	if (!mon.arm_oneshot(ms2timespec(&ts, MON_SERVER_PERIOD_MS)))
+	if (!mon.arm_oneshot(ms2timespec(&ts, mon_server_period_ms)))
 		return false;
 
 	mon._timerhandler = &monhandler_server;
@@ -187,7 +203,7 @@ static bool socket_connect()
 		return false;
 	}
 
-	if (!sock.connect(SERVER_IP, SERVER_PORT)) {
+	if (!sock.connect(server_addr, server_port)) {
 		std::cerr << "connecting socket failed" << std::endl;
 		sock.close();
 		return false;
@@ -482,14 +498,27 @@ static int sockerr(struct fdepoller *fdepoller)
 	return 0;
 }
 
+static void print_help()
+{
+	std::cout << "usage: jsremote [arguments]"                                                                             << std::endl;
+	std::cout << "  -h  --help                print this help"                                                             << std::endl;
+	std::cout << "  -a  --addr <address>      ip address of server"                                                        << std::endl;
+	std::cout << "  -p  --port <port>         tcp port of server"                                                          << std::endl;
+	std::cout << "  -j  --jsdev <device>      joystick device (default: "                 << JSDEV                  << ")" << std::endl;
+	std::cout << "  -x  --jsmon <period>      joystick monitoring period [ms] (default: " << MON_JOYSTICK_PERIOD_MS << ")" << std::endl;
+	std::cout << "  -y  --servermon <period>  server monitoring period [ms] (default: "   << MON_SERVER_PERIOD_MS   << ")" << std::endl;
+	std::cout << std::endl;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // main
 ////////////////////////////////////////////////////////////////////////////////
 
 int main(int argc, char **argv)
 {
-	bool       err = false;
-	sigset_t   sigset;
+	bool     err = false;
+	int      next_opt;
+	sigset_t sigset;
 
 	// block signals
 	sigemptyset(&sigset);
@@ -501,8 +530,69 @@ int main(int argc, char **argv)
 	sigaddset(&sigset, SIGPIPE);
 	sigprocmask(SIG_BLOCK, &sigset, NULL);
 
-	// initialize joystick device name
-	jsdev = JSDEV_DEFAULT;
+	// parse options
+	do {
+		next_opt = getopt_long(argc, argv, short_opts, long_opts, NULL);
+		switch (next_opt) {
+			case 'h':
+				print_help();
+				goto unwind;
+			case 'a':
+				server_addr = optarg;
+				break;
+			case 'p':
+				server_port = atoi(optarg);
+				break;
+			case 'j':
+				jsdev = optarg;
+				break;
+			case 'x':
+				mon_joystick_period_ms = strtoul(optarg, NULL, 10);
+				break;
+			case 'y':
+				mon_server_period_ms = strtoul(optarg, NULL, 10);
+				break;
+			case -1:
+				break;
+			default:
+				std::cerr << "an arguments parsing error encountered" << std::endl;
+				print_help();
+				err = true;
+				goto unwind;
+		}
+	} while (next_opt != -1);
+
+	// check options
+	if (server_addr.empty()) {
+		std::cerr << "invalid ip address" << std::endl;
+		print_help();
+		err = true;
+		goto unwind;
+	}
+	if (!server_port) {
+		std::cerr << "invalid port" << std::endl;
+		print_help();
+		err = true;
+		goto unwind;
+	}
+	if (jsdev.empty()) {
+		std::cerr << "invalid joystick device" << std::endl;
+		print_help();
+		err = true;
+		goto unwind;
+	}
+	if (!mon_joystick_period_ms) {
+		std::cerr << "invalid joystick monitoring period" << std::endl;
+		print_help();
+		err = true;
+		goto unwind;
+	}
+	if (!mon_server_period_ms) {
+		std::cerr << "invalid server monitoring period" << std::endl;
+		print_help();
+		err = true;
+		goto unwind;
+	}
 
 	// initialize epoller
 	if (!epoller.init()) {
