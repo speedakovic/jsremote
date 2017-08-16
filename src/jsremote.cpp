@@ -38,7 +38,6 @@ static sigepoller   sc(&epoller);
 static jsepoller    js(&epoller);
 static timepoller   mon(&epoller);
 static sockepoller  sock(&epoller);
-static uint32_t    *sockevents;
 static bool         sockconnected;
 
 static std::string  jsdev = JSDEV;
@@ -85,8 +84,6 @@ static int monhandler_joystick(struct timepoller *timepoller, uint64_t exp);
 static int monhandler_server(struct timepoller *timepoller, uint64_t exp);
 static int jshandler(struct jsepoller *js, struct js_event *event);
 static int jserr(struct fdepoller *fdepoller);
-static int sockenter(struct fdepoller *fdepoller, struct epoll_event *revent);
-static int sockexit(struct fdepoller *fdepoller, struct epoll_event *revent);
 static int sockrx(struct fdepoller *fdepoller, int len);
 static int socktx(struct fdepoller *fdepoller, int len);
 static int sockerr(struct fdepoller *fdepoller);
@@ -215,8 +212,6 @@ static bool socket_connect()
 		return false;
 	}
 
-	sock._enter = &sockenter;
-	sock._exit  = &sockexit;
 	sock._rx    = &sockrx;
 	sock._tx    = &socktx;
 	sock._hup   = &sockerr;
@@ -231,9 +226,6 @@ static void socket_close()
 {
 	if (sock.fd == -1)
 		return;
-
-	if (sockevents)
-		*sockevents = 0;
 
 	sockconnected = false;
 
@@ -346,18 +338,6 @@ static int jserr(struct fdepoller *fdepoller)
 	if (!monitor_joystick())
 		return -1;
 
-	return 0;
-}
-
-static int sockenter(struct fdepoller *fdepoller, struct epoll_event *revent)
-{
-	sockevents = &revent->events;
-	return 0;
-}
-
-static int sockexit(struct fdepoller *fdepoller, struct epoll_event *revent)
-{
-	sockevents = 0;
 	return 0;
 }
 
