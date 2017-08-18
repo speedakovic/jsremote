@@ -17,7 +17,7 @@
 #include <epoller/jsepoller.h>
 #include <epoller/sigepoller.h>
 #include <epoller/timepoller.h>
-#include <epoller/sockepoller.h>
+#include <epoller/tcpcepoller.h>
 
 ////////////////////////////////////////////////////////////////////////////////
 // macros
@@ -37,7 +37,7 @@ static epoller      epoller;
 static sigepoller   sc(&epoller);
 static jsepoller    js(&epoller);
 static timepoller   mon(&epoller);
-static sockepoller  sock(&epoller);
+static tcpcepoller  sock(&epoller);
 static bool         sockconnected;
 
 static std::string  jsdev = JSDEV;
@@ -78,12 +78,14 @@ static bool socket_connect();
 static void socket_close();
 static void socket_write_dgram(const void *buff, size_t len);
 static void socket_write_event(const struct js_event *event);
+static void print_help();
 
 static int sighandler(struct sigepoller *sc, struct signalfd_siginfo *siginfo);
 static int monhandler_joystick(struct timepoller *timepoller, uint64_t exp);
 static int monhandler_server(struct timepoller *timepoller, uint64_t exp);
 static int jshandler(struct jsepoller *js, struct js_event *event);
 static int jserr(struct fdepoller *fdepoller);
+static int sockcon(struct tcpcepoller *tcpcepoller, bool connected);
 static int sockrx(struct fdepoller *fdepoller, int len);
 static int socktx(struct fdepoller *fdepoller, int len);
 static int sockerr(struct fdepoller *fdepoller);
@@ -108,7 +110,7 @@ static bool monitor_joystick()
 
 	mon._timerhandler = &monhandler_joystick;
 
-	std::cout << "joystick periodic monitoring active" << std::endl;
+	//std::cout << "joystick periodic monitoring active" << std::endl;
 
 	return true;
 }
@@ -122,7 +124,7 @@ static bool monitor_server()
 
 	mon._timerhandler = &monhandler_server;
 
-	std::cout << "server oneshot monitoring active" << std::endl;
+	//std::cout << "server oneshot monitoring active" << std::endl;
 
 	return true;
 }
@@ -130,7 +132,7 @@ static bool monitor_server()
 static void monitor_stop()
 {
 	mon.disarm();
-	std::cout << "monitoring stopped" << std::endl;
+	//std::cout << "monitoring stopped" << std::endl;
 }
 
 static bool joystick_open()
@@ -190,13 +192,14 @@ static void joystick_print_info()
 
 static bool socket_connect()
 {
-	if (!sock.socket(AF_INET, SOCK_STREAM | O_NONBLOCK, 0, SOCKET_RX_BUFF_LEN, SOCKET_TX_BUFF_LEN, false, false, false)) {
+	if (!sock.socket(AF_INET, SOCKET_RX_BUFF_LEN, SOCKET_TX_BUFF_LEN)) {
 		std::cerr << "creating socket failed" << std::endl;
 		return false;
 	}
 
 	if (!sock.set_so_tcp_nodelay(true)) {
 		std::cerr << "setting socket nodelay failed" << std::endl;
+		sock.close();
 		return false;
 	}
 
@@ -206,18 +209,13 @@ static bool socket_connect()
 		return false;
 	}
 
-	if (!sock.enable(false, true, true)) {
-		std::cerr << "enabling socket failed" << std::endl;
-		sock.close();
-		return false;
-	}
-
+	sock._con   = &sockcon;
 	sock._rx    = &sockrx;
 	sock._tx    = &socktx;
 	sock._hup   = &sockerr;
 	sock._err   = &sockerr;
 
-	std::cout << "socket connecting" << std::endl;
+	//std::cout << "socket connecting" << std::endl;
 
 	return true;
 }
@@ -230,7 +228,7 @@ static void socket_close()
 	sockconnected = false;
 
 	sock.close();
-	std::cout << "socket closed" << std::endl;
+	//std::cout << "socket closed" << std::endl;
 }
 
 static void socket_write_dgram(const void *buff, size_t len)
@@ -258,6 +256,18 @@ static void socket_write_event(const struct js_event *event)
 	data->number = event->number;
 
 	socket_write_dgram(buff, sizeof buff);
+}
+
+static void print_help()
+{
+	std::cout << "usage: jsremote [arguments]"                                                                             << std::endl;
+	std::cout << "  -h  --help                print this help"                                                             << std::endl;
+	std::cout << "  -a  --addr <address>      ip address of server"                                                        << std::endl;
+	std::cout << "  -p  --port <port>         tcp port of server"                                                          << std::endl;
+	std::cout << "  -j  --jsdev <device>      joystick device (default: "                 << JSDEV                  << ")" << std::endl;
+	std::cout << "  -x  --jsmon <period>      joystick monitoring period [ms] (default: " << MON_JOYSTICK_PERIOD_MS << ")" << std::endl;
+	std::cout << "  -y  --servermon <period>  server monitoring period [ms] (default: "   << MON_SERVER_PERIOD_MS   << ")" << std::endl;
+	std::cout << std::endl;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -337,6 +347,37 @@ static int jserr(struct fdepoller *fdepoller)
 
 	if (!monitor_joystick())
 		return -1;
+
+	return 0;
+}
+
+static int sockcon(struct tcpcepoller *tcpcepoller, bool connected)
+{
+	bool err =false;
+
+	if (connected) {
+		std::cout << "socket connected" << std::endl;
+		sockconnected = true;
+
+		if (!sock.enable_rx()) {
+			std::cerr << "enabling reception on socket failed" << std::endl;
+			err = true;
+		}
+
+		for (const auto &item : initev)
+			socket_write_event(&item.second);
+
+	} else {
+		//perror("socket connecting failed");
+		err = true;
+	}
+
+	if (err) {
+		socket_close();
+
+		if (!monitor_server())
+			return -1;
+	}
 
 	return 0;
 }
@@ -428,37 +469,13 @@ static int socktx(struct fdepoller *fdepoller, int len)
 {
 	bool err = false;
 
-	if (sock.epoll_out_cnt == 1) {
-		if (len == 0) {
-			std::cout << "socket connected" << std::endl;
-			sockconnected = true;
+	if (len < 0) {
+		std::cerr << "socket error" << std::endl;
+		err = true;
 
-			if (!sock.enable_rx()) {
-				std::cerr << "enabling reception on socket failed" << std::endl;
-				err = true;
-			}
-
-			for (const auto &item : initev)
-				socket_write_event(&item.second);
-
-		} else if (len < 0) {
-			std::cerr << "socket connecting failed" << std::endl;
-			err = true;
-
-		} else {
-			std::cerr << "socket unexpected error" << std::endl;
-			err = true;
-		}
-
-	} else  {
-		if (len < 0) {
-			std::cerr << "socket error" << std::endl;
-			err = true;
-
-		} else if (len == 0) {
-			std::cerr << "socket unexpected error" << std::endl;
-			err = true;
-		}
+	} else if (len == 0) {
+		std::cerr << "socket unexpected error" << std::endl;
+		err = true;
 	}
 
 	if (err) {
@@ -476,18 +493,6 @@ static int sockerr(struct fdepoller *fdepoller)
 	std::cerr << "socket error" << std::endl;
 	socket_close();
 	return 0;
-}
-
-static void print_help()
-{
-	std::cout << "usage: jsremote [arguments]"                                                                             << std::endl;
-	std::cout << "  -h  --help                print this help"                                                             << std::endl;
-	std::cout << "  -a  --addr <address>      ip address of server"                                                        << std::endl;
-	std::cout << "  -p  --port <port>         tcp port of server"                                                          << std::endl;
-	std::cout << "  -j  --jsdev <device>      joystick device (default: "                 << JSDEV                  << ")" << std::endl;
-	std::cout << "  -x  --jsmon <period>      joystick monitoring period [ms] (default: " << MON_JOYSTICK_PERIOD_MS << ")" << std::endl;
-	std::cout << "  -y  --servermon <period>  server monitoring period [ms] (default: "   << MON_SERVER_PERIOD_MS   << ")" << std::endl;
-	std::cout << std::endl;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
