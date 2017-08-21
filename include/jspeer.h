@@ -18,27 +18,31 @@ public:
 		virtual ~receiver() = default;
 
 		/// @brief Called if socket was disconnected.
-		/// @param jps jspeer instance
+		/// @param jsp jspeer instance
 		virtual void disconnected(jspeer *jsp) = 0;
 
 		/// @brief Called if an error was occurred.
-		/// @param jps jspeer instance
+		/// @param jsp jspeer instance
 		virtual void error(jspeer *jsp) = 0;
 
 		/// @brief Called if joystick event was received
-		/// @param jps jspeer instance
+		/// @param jsp jspeer instance
+		/// @param ev joystick event
 		virtual void event(jspeer *jsp, const jsc_event *ev) = 0;
 
 		/// @brief Called if response to 'getaxes' command was received
-		/// @param jps jspeer instance
+		/// @param jsp jspeer instance
+		/// @param axes number of joystick axes
 		virtual void axes(jspeer *jsp, uint8_t axes) = 0;
 
 		/// @brief Called if response to 'getbuttons' command was received
-		/// @param jps jspeer instance
+		/// @param jsp jspeer instance
+		/// @param buttons number of joystick buttons
 		virtual void buttons(jspeer *jsp, uint8_t buttons) = 0;
 
 		/// @brief Called if response to 'getname' command was received
-		/// @param jps jspeer instance
+		/// @param jsp jspeer instance
+		/// @param name joystick name
 		virtual void name(jspeer *jsp, const std::string &name) = 0;
 	};
 
