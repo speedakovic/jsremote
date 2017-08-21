@@ -4,6 +4,7 @@
 #include <epoller/sigepoller.h>
 #include <epoller/tcpsepoller.h>
 
+#include <getopt.h>
 #include <unistd.h>
 
 #include <csignal>
@@ -12,18 +13,73 @@
 // macros
 ////////////////////////////////////////////////////////////////////////////////
 
+////////////////////////////////////////////////////////////////////////////////
+// types
+////////////////////////////////////////////////////////////////////////////////
+
+class jsp_receiver : public jspeer::receiver
+{
+public:
+	virtual void disconnected(jspeer *jsp)
+	{
+		std::cout << "peer disconnected" << std::endl;
+		jsp->cleanup();
+	};
+
+	virtual void error(jspeer *jsp)
+	{
+		std::cout << "peer error" << std::endl;
+		jsp->cleanup();
+	};
+
+	virtual void event(jspeer *jsp, const jsc_event *ev)
+	{
+		printf("peer event: %10u, %6d, %02X, %02d\n", ev->time, ev->value, ev->type, ev->number);
+	};
+
+	virtual void axes(jspeer *jsp, uint8_t axes)
+	{
+		std::cout << "peer axes: " << (int) axes << std::endl;
+	};
+
+	virtual void buttons(jspeer *jsp, uint8_t buttons)
+	{
+		std::cout << "peer buttons: " << (int) buttons << std::endl;
+	};
+
+	virtual void name(jspeer *jsp, const std::string &name)
+	{
+		std::cout << "peer name: " << name << std::endl;
+	};
+};
 
 ////////////////////////////////////////////////////////////////////////////////
 // variables
 ////////////////////////////////////////////////////////////////////////////////
 
-static epoller     epoller;
-static sigepoller  sc(&epoller);
-static tcpsepoller jss(&epoller);
+static epoller      epoller;
+static sigepoller   sc(&epoller);
+static tcpsepoller  jss(&epoller);
+static jspeer       jsp(&epoller);
+static jsp_receiver jspr;
+
+static std::string  server_addr;
+static uint16_t     server_port;
+
+static const char* const short_opts = "ha:p:";
+
+static const struct option long_opts[] = {
+	{"help",      0, NULL, 'h'},
+	{"addr",      1, NULL, 'a'},
+	{"port",      1, NULL, 'p'},
+	{ NULL,       0, NULL,  0 }
+};
 
 ////////////////////////////////////////////////////////////////////////////////
 // prototypes
 ////////////////////////////////////////////////////////////////////////////////
+
+static void print_help();
 
 static int sighandler(struct sigepoller *sc, struct signalfd_siginfo *siginfo);
 static int jssacc(struct tcpsepoller *tcpsepoller, int fd, const struct sockaddr *addr, const socklen_t *addrlen);
@@ -32,6 +88,14 @@ static int jssacc(struct tcpsepoller *tcpsepoller, int fd, const struct sockaddr
 // aux functions
 ////////////////////////////////////////////////////////////////////////////////
 
+static void print_help()
+{
+	std::cout << "usage: jspeertest [arguments]"                                                      << std::endl;
+	std::cout << "  -h  --help                print this help"                                        << std::endl;
+	std::cout << "  -a  --addr <address>      ip address to listen on (leave empty to listen on any)" << std::endl;
+	std::cout << "  -p  --port <port>         tcp port to listen on"                                  << std::endl;
+	std::cout << std::endl;
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 // handlers
@@ -73,7 +137,26 @@ static int jssacc(struct tcpsepoller *tcpsepoller, int fd, const struct sockaddr
 	}
 
 	std::cout << "client accepted" << std::endl;
-	close(fd);
+
+	if (jsp.is_initialized()) {
+		std::cout << "initialized peer already exists, client closed" << std::endl;
+		close(fd);
+		return 0;
+	}
+
+	if (!jsp.init(fd)) {
+		std::cerr << "initializing peer failed" << std::endl;
+		close(fd);
+		return 0;
+	}
+
+	jsp.set_receiver(&jspr);
+
+	std::cout << "peer initialized" << std::endl;
+
+	jsp.get_axes();
+	jsp.get_buttons();
+	jsp.get_name();
 
 	return 0;
 }
@@ -84,8 +167,9 @@ static int jssacc(struct tcpsepoller *tcpsepoller, int fd, const struct sockaddr
 
 int main(int argc, char **argv)
 {
-	sigset_t    sigset;
-	bool        err = false;
+	bool     err = false;
+	int      next_opt;
+	sigset_t sigset;
 
 	// block signals
 	sigemptyset(&sigset);
@@ -96,6 +180,37 @@ int main(int argc, char **argv)
 	sigaddset(&sigset, SIGUSR2);
 	sigaddset(&sigset, SIGPIPE);
 	sigprocmask(SIG_BLOCK, &sigset, NULL);
+
+	// parse options
+	do {
+		next_opt = getopt_long(argc, argv, short_opts, long_opts, NULL);
+		switch (next_opt) {
+			case 'h':
+				print_help();
+				goto unwind;
+			case 'a':
+				server_addr = optarg;
+				break;
+			case 'p':
+				server_port = atoi(optarg);
+				break;
+			case -1:
+				break;
+			default:
+				std::cerr << "an arguments parsing error encountered" << std::endl;
+				print_help();
+				err = true;
+				goto unwind;
+		}
+	} while (next_opt != -1);
+
+	// check options
+	if (!server_port) {
+		std::cerr << "invalid port" << std::endl;
+		print_help();
+		err = true;
+		goto unwind;
+	}
 
 	// initialize epoller
 	if (!epoller.init()) {
@@ -111,7 +226,7 @@ int main(int argc, char **argv)
 	sc._sighandler = &sighandler;
 
 	// initialize server for jsremote applicatin
-	if (!jss.socket(AF_INET, "", 55555)) {
+	if (!jss.socket(AF_INET, server_addr, server_port)) {
 		err = true;
 		goto unwind_sc;
 	}
@@ -122,6 +237,8 @@ int main(int argc, char **argv)
 	err = !epoller.loop();
 
 	// cleanups
+
+	jsp.cleanup();
 
 //unwind_jss:
 	jss.close();
