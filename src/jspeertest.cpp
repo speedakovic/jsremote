@@ -101,10 +101,10 @@ static int jssacc(struct tcpsepoller *tcpsepoller, int fd, const struct sockaddr
 
 static void print_help()
 {
-	std::cout << "usage: jspeertest [arguments]"                                                      << std::endl;
-	std::cout << "  -h  --help                print this help"                                        << std::endl;
-	std::cout << "  -a  --addr <address>      ip address to listen on (leave empty to listen on any)" << std::endl;
-	std::cout << "  -p  --port <port>         tcp port to listen on"                                  << std::endl;
+	std::cout << "usage: jspeertest [arguments]"                                                  << std::endl;
+	std::cout << "  -h  --help            print this help"                                        << std::endl;
+	std::cout << "  -a  --addr <address>  ip address to listen on (leave empty to listen on any)" << std::endl;
+	std::cout << "  -p  --port <port>     tcp port to listen on"                                  << std::endl;
 	std::cout << std::endl;
 }
 
