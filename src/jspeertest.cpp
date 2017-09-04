@@ -23,13 +23,17 @@ public:
 	virtual void disconnected(jspeer *jsp)
 	{
 		std::cout << "peer disconnected" << std::endl;
+		int fd = jsp->get_fd();
 		jsp->cleanup();
+		close(fd);
 	};
 
 	virtual void error(jspeer *jsp)
 	{
 		std::cout << "peer error" << std::endl;
+		int fd = jsp->get_fd();
 		jsp->cleanup();
+		close(fd);
 	};
 
 	virtual void event(jspeer *jsp, const jsc_event *ev)
@@ -175,6 +179,7 @@ int main(int argc, char **argv)
 	bool     err = false;
 	int      next_opt;
 	sigset_t sigset;
+	int      fd;
 
 	// block signals
 	sigemptyset(&sigset);
@@ -243,7 +248,9 @@ int main(int argc, char **argv)
 
 	// cleanups
 
+	fd = jsp.get_fd();
 	jsp.cleanup();
+	close(fd);
 
 //unwind_jss:
 	jss.close();
