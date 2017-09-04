@@ -101,7 +101,7 @@ private:
 	virtual int hup();
 	virtual int err();
 
-	virtual void write_datagram(const void *buff, size_t len);
+	virtual bool write_datagram(const void *buff, size_t len);
 };
 
 #endif // JSPEER_H

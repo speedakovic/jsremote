@@ -50,7 +50,7 @@ bool jspeer::get_axes()
 	msg->length  = sizeof buff;
 	msg->command = JS_COMMAND_GETAXES;
 
-	write_datagram((void *)buff, sizeof buff);
+	return write_datagram((void *)buff, sizeof buff);
 }
 
 bool jspeer::get_buttons()
@@ -61,7 +61,7 @@ bool jspeer::get_buttons()
 	msg->length  = sizeof buff;
 	msg->command = JS_COMMAND_GETBUTTONS;
 
-	write_datagram((void *)buff, sizeof buff);
+	return write_datagram((void *)buff, sizeof buff);
 }
 
 bool jspeer::get_name()
@@ -72,7 +72,7 @@ bool jspeer::get_name()
 	msg->length  = sizeof buff;
 	msg->command = JS_COMMAND_GETNAME;
 
-	write_datagram((void *)buff, sizeof buff);
+	return write_datagram((void *)buff, sizeof buff);
 }
 
 int jspeer::rx(int len)
@@ -166,6 +166,8 @@ int jspeer::tx(int len)
 
 	if (!linbuff_tord(&txbuff))
 		linbuff_compact(&txbuff);
+
+	return 0;
 }
 
 int jspeer::hup()
@@ -174,6 +176,8 @@ int jspeer::hup()
 
 	if (rcvr)
 		rcvr->error(this);
+
+	return 0;
 }
 
 int jspeer::err()
@@ -182,29 +186,27 @@ int jspeer::err()
 
 	if (rcvr)
 		rcvr->error(this);
+
+	return 0;
 }
 
-void jspeer::write_datagram(const void *buff, size_t len)
+bool jspeer::write_datagram(const void *buff, size_t len)
 {
 	ssize_t ret = sockepoller::write_dgram(buff, len);
 
 	if (ret < 0) {
 		std::cerr << "writing datagram to socket failed, unknown error" << std::endl;
-
-		if (rcvr)
-			rcvr->error(this);
+		return false;
 
 	} else if (ret == 0) {
 		std::cerr << "writing datagram to socket failed, not enough space" << std::endl;
-
-		if (rcvr)
-			rcvr->error(this);
+		return false;
 
 	} else if ((size_t)ret != len) {
 		std::cerr << "writing datagram to socket failed, unexpected error" << std::endl;
+		return false;
 
-		if (rcvr)
-			rcvr->error(this);
-	}
+	} else
+		return true;
 }
 
