@@ -11,6 +11,7 @@
 #define JS_COMMAND_GETAXES     0x02
 #define JS_COMMAND_GETBUTTONS  0x03
 #define JS_COMMAND_GETNAME     0x04
+#define JS_COMMAND_ALIVE       0x08
 
 struct __attribute__((packed)) jsmessage
 {

@@ -30,6 +30,10 @@ public:
 		/// @param ev joystick event
 		virtual void event(jspeer *jsp, const jsc_event *ev) = 0;
 
+		/// @brief Called if alive packet was received
+		/// @param jsp jspeer instance
+		virtual void alive(jspeer *jsp) = 0;
+
 		/// @brief Called if response to 'getaxes' command was received
 		/// @param jsp jspeer instance
 		/// @param axes number of joystick axes

@@ -37,6 +37,11 @@ public:
 		printf("peer event: %10u, %6d, %02X, %02d\n", ev->time, ev->value, ev->type, ev->number);
 	};
 
+	virtual void alive(jspeer *jsp)
+	{
+		std::cout << "alive" << std::endl;
+	};
+
 	virtual void axes(jspeer *jsp, uint8_t axes)
 	{
 		std::cout << "peer axes: " << (int) axes << std::endl;

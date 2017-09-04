@@ -107,6 +107,11 @@ int jspeer::rx(int len)
 				if (rcvr)
 					rcvr->event(this, data);
 
+			} else if (msg->command == JS_COMMAND_ALIVE) {
+
+				if (rcvr)
+					rcvr->alive(this);
+
 			} else if (msg->command == (JS_COMMAND_GETAXES | JS_RESPONSE)) {
 
 				jsr_getaxes *data = (jsr_getaxes *) msg->data;

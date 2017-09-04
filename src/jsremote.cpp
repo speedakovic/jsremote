@@ -26,6 +26,7 @@
 #define JSDEV                  "/dev/input/js0"
 #define MON_JOYSTICK_PERIOD_MS 1000u
 #define MON_SERVER_PERIOD_MS   1000u
+#define MON_ALIVE_PERIOD_MS    0u
 #define SOCKET_RX_BUFF_LEN     JS_MESSAGE_LENGTH_MAX
 #define SOCKET_TX_BUFF_LEN     JS_MESSAGE_LENGTH_MAX
 
@@ -45,10 +46,11 @@ static std::string  server_addr;
 static uint16_t     server_port;
 static size_t       mon_joystick_period_ms = MON_JOYSTICK_PERIOD_MS;
 static size_t       mon_server_period_ms = MON_SERVER_PERIOD_MS;
+static size_t       mon_alive_period_ms = MON_ALIVE_PERIOD_MS;
 
 static std::map<std::pair<uint8_t, uint8_t>, js_event> initev;
 
-static const char* const short_opts = "ha:p:j:x:y:";
+static const char* const short_opts = "ha:p:j:x:y:l:";
 
 static const struct option long_opts[] = {
 	{"help",      0, NULL, 'h'},
@@ -57,6 +59,7 @@ static const struct option long_opts[] = {
 	{"jsdev",     1, NULL, 'j'},
 	{"jsmon",     1, NULL, 'x'},
 	{"servermon", 1, NULL, 'y'},
+	{"alive",     1, NULL, 'l'},
 	{ NULL,       0, NULL,  0 }
 };
 
@@ -68,6 +71,7 @@ static struct timespec* ms2timespec(struct timespec *ts, uint64_t ms);
 
 static bool monitor_joystick();
 static bool monitor_server();
+static bool monitor_alive();
 static void monitor_stop();
 
 static bool joystick_open();
@@ -83,6 +87,7 @@ static void print_help();
 static int sighandler(struct sigepoller *sc, struct signalfd_siginfo *siginfo);
 static int monhandler_joystick(struct timepoller *timepoller, uint64_t exp);
 static int monhandler_server(struct timepoller *timepoller, uint64_t exp);
+static int monhandler_alive(struct timepoller *timepoller, uint64_t exp);
 static int jshandler(struct jsepoller *js, struct js_event *event);
 static int jserr(struct fdepoller *fdepoller);
 static int sockcon(struct tcpcepoller *tcpcepoller, bool connected);
@@ -125,6 +130,21 @@ static bool monitor_server()
 	mon._timerhandler = &monhandler_server;
 
 	//std::cout << "server oneshot monitoring active" << std::endl;
+
+	return true;
+}
+
+static bool monitor_alive()
+{
+	if (!mon_alive_period_ms)
+		return true;
+
+	struct timespec ts;
+
+	if (!mon.arm_periodic(ms2timespec(&ts, mon_alive_period_ms)))
+		return false;
+
+	mon._timerhandler = &monhandler_alive;
 
 	return true;
 }
@@ -260,13 +280,14 @@ static void socket_write_event(const struct js_event *event)
 
 static void print_help()
 {
-	std::cout << "usage: jsremote [arguments]"                                                                             << std::endl;
-	std::cout << "  -h  --help                print this help"                                                             << std::endl;
-	std::cout << "  -a  --addr <address>      ip address of server"                                                        << std::endl;
-	std::cout << "  -p  --port <port>         tcp port of server"                                                          << std::endl;
-	std::cout << "  -j  --jsdev <device>      joystick device (default: "                 << JSDEV                  << ")" << std::endl;
-	std::cout << "  -x  --jsmon <period>      joystick monitoring period [ms] (default: " << MON_JOYSTICK_PERIOD_MS << ")" << std::endl;
-	std::cout << "  -y  --servermon <period>  server monitoring period [ms] (default: "   << MON_SERVER_PERIOD_MS   << ")" << std::endl;
+	std::cout << "usage: jsremote [arguments]"                                                                                                    << std::endl;
+	std::cout << "  -h  --help                print this help"                                                                                    << std::endl;
+	std::cout << "  -a  --addr <address>      ip address of server"                                                                               << std::endl;
+	std::cout << "  -p  --port <port>         tcp port of server"                                                                                 << std::endl;
+	std::cout << "  -j  --jsdev <device>      joystick device (default: "                                        << JSDEV                  << ")" << std::endl;
+	std::cout << "  -x  --jsmon <period>      joystick monitoring period [ms] (default: "                        << MON_JOYSTICK_PERIOD_MS << ")" << std::endl;
+	std::cout << "  -y  --servermon <period>  server monitoring period [ms] (default: "                          << MON_SERVER_PERIOD_MS   << ")" << std::endl;
+	std::cout << "  -l  --alive <period>      alive packets period [ms], zero means no alive packets (default: " << MON_ALIVE_PERIOD_MS    << ")" << std::endl;
 	std::cout << std::endl;
 }
 
@@ -326,6 +347,19 @@ static int monhandler_server(struct timepoller *timepoller, uint64_t exp)
 	return 0;
 }
 
+static int monhandler_alive(struct timepoller *timepoller, uint64_t exp)
+{
+	uint8_t buff[sizeof(jsmessage)];
+	jsmessage *msg = (jsmessage *) buff;
+
+	msg->length  = sizeof buff;
+	msg->command = JS_COMMAND_ALIVE;
+
+	socket_write_dgram(buff, sizeof buff);
+
+	return 0;
+}
+
 static int jshandler(struct jsepoller *js, struct js_event *event)
 {
 	printf("js: %10u, %6d, %02X, %02d\n", event->time, event->value, event->type, event->number);
@@ -361,6 +395,11 @@ static int sockcon(struct tcpcepoller *tcpcepoller, bool connected)
 
 		if (!sock.enable_rx()) {
 			std::cerr << "enabling reception on socket failed" << std::endl;
+			err = true;
+		}
+
+		if (!monitor_alive()) {
+			std::cerr << "setting alive timer failed" << std::endl;
 			err = true;
 		}
 
@@ -543,6 +582,9 @@ int main(int argc, char **argv)
 				break;
 			case 'y':
 				mon_server_period_ms = strtoul(optarg, NULL, 10);
+				break;
+			case 'l':
+				mon_alive_period_ms = strtoul(optarg, NULL, 10);
 				break;
 			case -1:
 				break;
