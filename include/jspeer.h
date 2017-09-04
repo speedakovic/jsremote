@@ -76,6 +76,10 @@ public:
 	/// @return @c true if jspeer is initialized, otherwise @c false
 	bool is_initialized();
 
+	/// @brief Gets peer file descriptor.
+	/// @return peer file descriptor or -1 if peer is not initialized
+	int get_fd();
+
 	/// @brief Sets receiver.
 	/// @param rcvr pointer to receiver. Set to zero to unset receiver.
 	void set_receiver(jspeer::receiver *rcvr);

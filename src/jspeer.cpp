@@ -37,6 +37,11 @@ bool jspeer::is_initialized()
 	return fd != -1;
 }
 
+int jspeer::get_fd()
+{
+	return fd;
+}
+
 void jspeer::set_receiver(jspeer::receiver *rcvr)
 {
 	this->rcvr = rcvr;
