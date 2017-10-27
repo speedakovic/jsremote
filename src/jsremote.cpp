@@ -84,16 +84,16 @@ static void socket_write_dgram(const void *buff, size_t len);
 static void socket_write_event(const struct js_event *event);
 static void print_help();
 
-static int sighandler(struct sigepoller *sc, struct signalfd_siginfo *siginfo);
-static int monhandler_joystick(struct timepoller *timepoller, uint64_t exp);
-static int monhandler_server(struct timepoller *timepoller, uint64_t exp);
-static int monhandler_alive(struct timepoller *timepoller, uint64_t exp);
-static int jshandler(struct jsepoller *js, struct js_event *event);
-static int jserr(struct fdepoller *fdepoller);
-static int sockcon(struct tcpcepoller *tcpcepoller, bool connected);
-static int sockrx(struct fdepoller *fdepoller, int len);
-static int socktx(struct fdepoller *fdepoller, int len);
-static int sockerr(struct fdepoller *fdepoller);
+static int sighandler(sigepoller &sender, struct signalfd_siginfo *siginfo);
+static int monhandler_joystick(timepoller &sender, uint64_t exp);
+static int monhandler_server(timepoller &sender, uint64_t exp);
+static int monhandler_alive(timepoller &sender, uint64_t exp);
+static int jshandler(jsepoller &sender, struct js_event *event);
+static int jserr(fdepoller &sender);
+static int sockcon(tcpcepoller &sender, bool connected);
+static int sockrx(fdepoller &sender, int len);
+static int socktx(fdepoller &sender, int len);
+static int sockerr(fdepoller &sender);
 
 ////////////////////////////////////////////////////////////////////////////////
 // aux functions
@@ -295,7 +295,7 @@ static void print_help()
 // handlers
 ////////////////////////////////////////////////////////////////////////////////
 
-static int sighandler(struct sigepoller *sc, struct signalfd_siginfo *siginfo)
+static int sighandler(sigepoller &sender, struct signalfd_siginfo *siginfo)
 {
 	std::cerr << "received signal ";
 	switch (siginfo->ssi_signo) {
@@ -323,7 +323,7 @@ static int sighandler(struct sigepoller *sc, struct signalfd_siginfo *siginfo)
 	}
 }
 
-static int monhandler_joystick(struct timepoller *timepoller, uint64_t exp)
+static int monhandler_joystick(timepoller &sender, uint64_t exp)
 {
 	if (access(jsdev.c_str(), R_OK) == -1)
 		return 0;
@@ -339,7 +339,7 @@ static int monhandler_joystick(struct timepoller *timepoller, uint64_t exp)
 	return 0;
 }
 
-static int monhandler_server(struct timepoller *timepoller, uint64_t exp)
+static int monhandler_server(timepoller &sender, uint64_t exp)
 {
 	if (!socket_connect())
 		return -1;
@@ -347,7 +347,7 @@ static int monhandler_server(struct timepoller *timepoller, uint64_t exp)
 	return 0;
 }
 
-static int monhandler_alive(struct timepoller *timepoller, uint64_t exp)
+static int monhandler_alive(timepoller &sender, uint64_t exp)
 {
 	uint8_t buff[sizeof(jsmessage)];
 	jsmessage *msg = (jsmessage *) buff;
@@ -360,7 +360,7 @@ static int monhandler_alive(struct timepoller *timepoller, uint64_t exp)
 	return 0;
 }
 
-static int jshandler(struct jsepoller *js, struct js_event *event)
+static int jshandler(jsepoller &sender, struct js_event *event)
 {
 	printf("js: %10u, %6d, %02X, %02d\n", event->time, event->value, event->type, event->number);
 
@@ -373,7 +373,7 @@ static int jshandler(struct jsepoller *js, struct js_event *event)
 	return 0;
 }
 
-static int jserr(struct fdepoller *fdepoller)
+static int jserr(fdepoller &sender)
 {
 	socket_close();
 
@@ -385,7 +385,7 @@ static int jserr(struct fdepoller *fdepoller)
 	return 0;
 }
 
-static int sockcon(struct tcpcepoller *tcpcepoller, bool connected)
+static int sockcon(tcpcepoller &sender, bool connected)
 {
 	bool err =false;
 
@@ -421,7 +421,7 @@ static int sockcon(struct tcpcepoller *tcpcepoller, bool connected)
 	return 0;
 }
 
-static int sockrx(struct fdepoller *fdepoller, int len)
+static int sockrx(fdepoller &sender, int len)
 {
 	bool err = false;
 
@@ -508,7 +508,7 @@ finish:
 	return 0;
 }
 
-static int socktx(struct fdepoller *fdepoller, int len)
+static int socktx(fdepoller &sender, int len)
 {
 	bool err = false;
 
@@ -534,7 +534,7 @@ static int socktx(struct fdepoller *fdepoller, int len)
 	return 0;
 }
 
-static int sockerr(struct fdepoller *fdepoller)
+static int sockerr(fdepoller &sender)
 {
 	std::cerr << "socket error" << std::endl;
 	socket_close();

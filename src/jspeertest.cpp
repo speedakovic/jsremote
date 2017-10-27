@@ -112,7 +112,7 @@ static void print_help()
 // handlers
 ////////////////////////////////////////////////////////////////////////////////
 
-static int sighandler(struct sigepoller *sc, struct signalfd_siginfo *siginfo)
+static int sighandler(sigepoller &sender, struct signalfd_siginfo *siginfo)
 {
 	std::cerr << "received signal ";
 	switch (siginfo->ssi_signo) {
@@ -140,7 +140,7 @@ static int sighandler(struct sigepoller *sc, struct signalfd_siginfo *siginfo)
 	}
 }
 
-static int jssacc(struct tcpsepoller *tcpsepoller, int fd, const struct sockaddr *addr, const socklen_t *addrlen)
+static int jssacc(tcpsepoller &sender, int fd, const struct sockaddr *addr, const socklen_t *addrlen)
 {
 	if (fd < 0) {
 		std::cout << "client accepting failed" << std::endl;
